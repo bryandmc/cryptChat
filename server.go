@@ -39,6 +39,7 @@ func postRedis(input string, pool *pool.Pool) {
 		// handle
 		fmt.Println(err.Error())
 	} else {
+		defer pool.Put(client)
 		client.Cmd("PUBLISH", "channel", input)
 	}
 	fmt.Print(input)
