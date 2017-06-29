@@ -1,9 +1,8 @@
 package main
 
-import (
-	"github.com/bryandmc/cryptChat"
-)
+import "github.com/bryandmc/cryptchat"
 
 func main() {
-	cryptChat.Start()
+	//cryptchat.Start()
+	cryptchat.Connect("localhost:1234")
 }
