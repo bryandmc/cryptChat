@@ -3,18 +3,33 @@ package cryptchat
 import (
 	"fmt"
 	"net"
+	"os"
 
 	"regexp"
 
 	"time"
 
-	"github.com/mediocregopher/radix.v2/pool"
-	"github.com/mediocregopher/radix.v2/redis"
+	"sync"
+
+	logging "github.com/op/go-logging"
+)
+
+// Users contains a list of the currently connected User objects
+var Users = make(map[string]*User)
+var userLock sync.RWMutex
+
+// Rooms contains a list of the currently available/active Room objects
+var Rooms = make(map[string]*Room)
+var roomLock sync.RWMutex
+
+var log = logging.MustGetLogger("server")
+var format = logging.MustStringFormatter(
+	`%{color}%{time:15:04:05.000} %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
 )
 
 // Listen listens for incoming connections then hands it off to another goroutine for handling
 // gotta love go ;)
-func Listen(handle func(net.Conn)) {
+func Listen(handle func(*net.Conn)) {
 	conn, err := net.Listen("tcp", "localhost:1234")
 	if err != nil {
 		val := fmt.Errorf("Error: %s", err.Error())
@@ -25,81 +40,134 @@ func Listen(handle func(net.Conn)) {
 			if err != nil {
 				// handle
 			} else { // only want to handle if there WASN'T an error
-				go handle(c) // handle that shit in a goroutine so it's not blocking
+				go handle(&c) // handle that shit in a goroutine so it's not blocking
 			}
 		}
 	}
 }
-func setupRedisPool() *pool.Pool {
-	p, err := pool.New("tcp", "localhost:6379", 10)
-	if err != nil {
-		// handle
-	} else {
-		return p
-	}
-	return nil
-}
 
-func postRedis(input string, channel string, pool *pool.Pool) {
-	client, err := pool.Get()
-	if err != nil {
-		// handle
-		fmt.Println(err.Error())
-	} else {
-		defer pool.Put(client)
-		c := make([]byte, len(input)+1)
-		copy(c[:], input[:])
-		cipher, err := Encrypt(c, []byte("Blah blah blah something is a little bit too long")[:32]) // needs to be 32 bytes long
-		if err != nil {
-			panic(err)
-		}
-		client.Cmd("PUBLISH", channel, cipher)
-		fmt.Println("encoded:", string(cipher))
-		dec, err := Decrypt(cipher, []byte("Blah blah blah something is a little bit too long")[:32])
-		if err != nil {
-			panic(err) // TODO: handle errors the same way
-		}
-		fmt.Println("*************************************************")
-		fmt.Println("decode:", string(dec))
+// RecieveMsgs blocks until it gets a message, sends that the the user and
+// repeats. Nice and simple.
+func RecieveMsgs(usr *User) {
+	for {
+		val := <-usr.channel
+		c := *usr.conn
+		c.Write([]byte("[" + val.sentFrom.name + "] " + val.msg + "\n"))
+		//log.Error(<-usr.channel)
 	}
 }
 
-func ListenRedis(c *net.Conn, rconn *redis.Client) {
+// ReadHandler handles all the incoming connections and reading from the
+// socket. Little more complicated than I'd like currently.
+var ReadHandler = func(c *net.Conn) {
+	usr := CreateUser("Bryan", c)
+	go RecieveMsgs(&usr)
+	log.Debug(usr.name)
+	log.Info(Users) //unsafe!
+	rm := CreateRoom("test")
+	JoinRoom(&usr, &rm)
+	log.Debug(rm)
+	log.Debug("Starting goroutine to handle connection from:", (*c).RemoteAddr())
+	for {
+		//writePrompt(c)
+		count, buff, _ := readInput(c)
+		if count <= 0 {
+			log.Warningf("No data read (%d) closing goroutine.", count)
+			return // get out of here
+		}
+		s := string(buff[:count]) // convert to string regex
+		re := regexp.MustCompile("\n")
+		index := re.FindStringIndex(s) // gives it in [start, end] []int format
+		log.Info("Index position of newline character:", index)
 
+		// send messages here
+		var msg = Message{
+			msg:        s[:index[0]],
+			attachment: []byte{},
+			sentFrom:   &usr,
+			sentTo:     &usr,
+			room:       nil,
+			isToRoom:   false,
+		}
+		msg.Send()
+		msg.Send()
+		//log.Critical(s[:index[0]])
+	}
+}
+
+// JoinRoom adds a user to a room.
+func JoinRoom(usr *User, rm *Room) {
+	roomLock.Lock()
+	for _, val := range rm.users { // check for existing user
+		if usr == val {
+			log.Info(val)
+			return
+		}
+	}
+	rm.users = append(rm.users, usr)
+	roomLock.Unlock()
+}
+
+// CreateRoom handles creating a new Room to be inserted into Rooms
+func CreateRoom(roomname string) Room {
+	r := Room{
+		name:     roomname,
+		users:    []*User{},    //starts empty
+		messages: []*Message{}, //starts empty
+	}
+	roomLock.Lock()
+	Rooms[roomname] = &r
+	roomLock.Unlock()
+	return r
+}
+
+// RemoveRoom deletes a Room from the Rooms list
+func RemoveRoom(roomname string) {
+	roomLock.Lock()
+	_, ok := Rooms[roomname]
+	if ok {
+		delete(Rooms, roomname)
+	}
+	roomLock.Unlock()
+}
+
+// CreateUser creates a new user with name username and connection pointer c
+func CreateUser(username string, c *net.Conn) User {
+	u := User{
+		name:    username,
+		conn:    c,
+		channel: make(chan *Message),
+	}
+	userLock.Lock()
+	Users[username] = &u
+	userLock.Unlock()
+	return u
+}
+
+// RemoveUser removes a user from the Users list
+func RemoveUser(username string) {
+	userLock.Lock()
+	_, ok := Users[username]
+	if ok {
+		delete(Users, username)
+	}
+	userLock.Unlock()
 }
 
 // Start runs the server. Ta-dah.
 func Start() {
-	pool := setupRedisPool()
-
-	//handler for the connections...
-	handler := func(c net.Conn) {
-		fmt.Println("connected...")
-		for {
-			writePrompt(&c)
-			count, buff, _ := readInput(&c)
-			if count <= 0 {
-				return // get out of here
-			}
-			//userInput, err := ioutil.ReadAll(c)
-			s := string(buff[:count])
-			re := regexp.MustCompile("\n")
-			index := re.FindStringIndex(s) // gives it in [start, end] []int format
-			fmt.Println("Index positions: ", index)
-			go postRedis(s[0:index[0]], "channel", pool)
-			defer c.Close()
-		}
-	}
-	Listen(handler)
+	setupLogging()
+	log.Notice("Starting cryptchat server...")
+	Listen(ReadHandler)
 }
 
-func timeResp() []byte {
+func timeResponse() []byte {
 	t := time.Now()
 	return []byte("[" + t.Format("3:04PM") + "]:")
 }
 
 func writePrompt(c *net.Conn) {
-	(*c).Write(timeResp())
+	(*c).Write(timeResponse())
 }
 
 func readInput(c *net.Conn) (int, []byte, error) {
@@ -110,4 +178,24 @@ func readInput(c *net.Conn) (int, []byte, error) {
 		return count, nil, err
 	}
 	return count, buff, nil
+}
+
+// got this setup from the github page for go-logging
+// makes a nice clean colored logging output.
+func setupLogging() {
+	backend1 := logging.NewLogBackend(os.Stderr, "", 0)
+	backend2 := logging.NewLogBackend(os.Stderr, "", 0)
+
+	// For messages written to backend2 we want to add some additional
+	// information to the output, including the used log level and the name of
+	// the function.
+	backend2Formatter := logging.NewBackendFormatter(backend2, format)
+
+	// Only errors and more severe messages should be sent to backend1
+	backend1Leveled := logging.AddModuleLevel(backend1)
+	backend1Leveled.SetLevel(logging.ERROR, "")
+
+	// Set the backends to be used.
+	logging.SetBackend(backend1Leveled, backend2Formatter)
+
 }
