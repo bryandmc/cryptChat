@@ -5,6 +5,8 @@ go:
   - 1.8.x
   - master
 
+before_script:
+  - &nc -l localhost 1234
 script:
   - go test -race -coverprofile=coverage.txt -covermode=atomic
 
