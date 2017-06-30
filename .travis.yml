@@ -6,7 +6,7 @@ go:
   - master
 
 before_script:
-  - &nc -l localhost 1234
+  - nc -l localhost 1234 &
 script:
   - go test -race -coverprofile=coverage.txt -covermode=atomic
 
