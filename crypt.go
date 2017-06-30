@@ -9,7 +9,7 @@ import (
 )
 
 // Encrypt handles encrypting plaintext to cipher text using AES encryption.
-//
+// Very simple implementation currently.
 func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
 	c, err := aes.NewCipher(key)
 	if err != nil {
