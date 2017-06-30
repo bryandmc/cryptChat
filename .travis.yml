@@ -2,10 +2,8 @@ language: go
 
 go:
   - 1.7.6
-    - tip
-
-before_install:
-  - go get -t -v ./...
+  - 1.8.x
+  - master
 
 script:
   - go test -race -coverprofile=coverage.txt -covermode=atomic
