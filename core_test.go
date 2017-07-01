@@ -7,7 +7,7 @@ import (
 )
 
 func TestMessage_Send(t *testing.T) {
-	//go Listen(ReadHandler)
+	go Listen(ReadHandler)
 	timeWait, _ := time.ParseDuration("10s")
 	c, _ := net.DialTimeout("tcp", "localhost:1234", timeWait)
 	usr := CreateUser("Bryan", &c)

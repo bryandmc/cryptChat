@@ -16,11 +16,11 @@ import (
 
 // Users contains a list of the currently connected User objects
 var Users = make(map[string]*User)
-var userLock sync.RWMutex
+var userLock = &sync.RWMutex{}
 
 // Rooms contains a list of the currently available/active Room objects
 var Rooms = make(map[string]*Room)
-var roomLock sync.RWMutex
+var roomLock = &sync.RWMutex{}
 
 var log = logging.MustGetLogger("server")
 var format = logging.MustStringFormatter(
@@ -63,7 +63,7 @@ var ReadHandler = func(c *net.Conn) {
 	usr := CreateUser("Bryan", c)
 	go RecieveMsgs(&usr)
 	log.Debug(usr.name)
-	log.Info(Users) //unsafe!
+	//log.Info(Users) //unsafe!
 	rm := CreateRoom("test")
 	JoinRoom(&usr, &rm)
 	log.Debug(rm)
