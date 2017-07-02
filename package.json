@@ -1,0 +1,26 @@
+{
+  "name": "cryptchat",
+  "version": "0.0.1",
+  "description": "A simple, fast, and stable terminal based chat and file transfer program.",
+  "main": "Gulpfile.js",
+  "dependencies": {
+    "gulp": "^3.9.1",
+    "gulp-livereload": "^3.8.1",
+    "gulp-sync": "^0.1.4",
+    "node-notifier": "^5.1.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "go test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bryandmc/cryptchat.git"
+  },
+  "author": "Bryan McCoid",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bryandmc/cryptchat/issues"
+  },
+  "homepage": "https://github.com/bryandmc/cryptchat#readme"
+}
