@@ -33,7 +33,7 @@ func TestCreateUser(t *testing.T) {
 	// Had to customize this one
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CreateUser(tt.args.username, tt.args.c); !(got.conn == tt.args.c && got.name == tt.args.username) && Users[tt.args.username] == &got {
+			if got := CreateUser(tt.args.username, tt.args.c); !(got.conn == tt.args.c && got.name == tt.args.username) && users[tt.args.username] == got {
 				t.Errorf("CreateUser() = %v, want %v", got, tt.want)
 			}
 		})
@@ -52,10 +52,10 @@ func TestCreateRoom(t *testing.T) {
 		{
 			name: "basic create room",
 			args: args{
-				roomname: "test",
+				roomname: "test room",
 			},
 			want: Room{
-				name:     "test",
+				name:     "test room",
 				users:    []*User{},
 				messages: []*Message{},
 			},
@@ -63,7 +63,7 @@ func TestCreateRoom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CreateRoom(tt.args.roomname); !reflect.DeepEqual(got, tt.want) && Rooms[tt.args.roomname] == &got {
+			if got := CreateRoom(tt.args.roomname); !reflect.DeepEqual(*got, tt.want) && rooms[tt.args.roomname] != got {
 				t.Errorf("CreateRoom() = %v, want %v", got, tt.want)
 			}
 		})
@@ -90,6 +90,24 @@ func TestRemoveRoom(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			RemoveRoom(tt.args.roomname)
+		})
+	}
+}
+
+func TestJoinRoom(t *testing.T) {
+	type args struct {
+		usr *User
+		rm  *Room
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+	// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			JoinRoom(tt.args.usr, tt.args.rm)
 		})
 	}
 }

@@ -12,8 +12,17 @@ func TestMessage_Send(t *testing.T) {
 	c, _ := net.DialTimeout("tcp", "localhost:1234", timeWait)
 	usr := CreateUser("Bryan", &c)
 	rm := CreateRoom("test send room")
-	JoinRoom(&usr, &rm)
-	go RecieveMsgs(&usr)
+	JoinRoom(usr, rm)
+	quit := make(chan bool)
+
+	// TODO -- there is an error if you attempt
+	// to test after running the program beforehand.
+	// Running test again right after works, however.
+	// Unsure as to why this is the case. Must have something to
+	// do with 'go Listen(ReadHandler)' and the program not
+	// closing properly from a running state.
+	go RecieveMsgs(usr, &quit)
+
 	type fields struct {
 		msg        string
 		attachment []byte
@@ -32,7 +41,7 @@ func TestMessage_Send(t *testing.T) {
 				msg:        "Hey!!",
 				attachment: *new([]byte),
 				sentFrom:   new(User),
-				sentTo:     &usr,
+				sentTo:     usr,
 				room:       nil,
 				isToRoom:   false,
 			},
@@ -42,9 +51,9 @@ func TestMessage_Send(t *testing.T) {
 			fields: fields{
 				msg:        "Hey!!",
 				attachment: *new([]byte),
-				sentFrom:   &usr,
+				sentFrom:   usr,
 				sentTo:     nil,
-				room:       &rm,
+				room:       rm,
 				isToRoom:   true,
 			},
 		},
@@ -63,4 +72,5 @@ func TestMessage_Send(t *testing.T) {
 			m.Send()
 		})
 	}
+	quit <- true
 }

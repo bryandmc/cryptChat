@@ -1,7 +1,6 @@
 package cryptchat
 
 import (
-	"fmt"
 	"net"
 	"os"
 
@@ -11,15 +10,17 @@ import (
 
 	"sync"
 
+	"strings"
+
 	logging "github.com/op/go-logging"
 )
 
 // Users contains a list of the currently connected User objects
-var Users = make(map[string]*User)
+var users = make(map[string]*User)
 var userLock = &sync.RWMutex{}
 
 // Rooms contains a list of the currently available/active Room objects
-var Rooms = make(map[string]*Room)
+var rooms = make(map[string]*Room)
 var roomLock = &sync.RWMutex{}
 
 var log = logging.MustGetLogger("server")
@@ -32,13 +33,12 @@ var format = logging.MustStringFormatter(
 func Listen(handle func(*net.Conn)) {
 	conn, err := net.Listen("tcp", "localhost:1234")
 	if err != nil {
-		val := fmt.Errorf("Error: %s", err.Error())
-		fmt.Println(val)
+		log.Critical(err.Error())
 	} else {
 		for { // keeps accepting connections forever
 			c, err := conn.Accept()
 			if err != nil {
-				// handle
+				log.Critical(err.Error())
 			} else { // only want to handle if there WASN'T an error
 				go handle(&c) // handle that shit in a goroutine so it's not blocking
 			}
@@ -47,52 +47,112 @@ func Listen(handle func(*net.Conn)) {
 }
 
 // RecieveMsgs blocks until it gets a message, sends that the the user and
-// repeats. Nice and simple.
-func RecieveMsgs(usr *User) {
+// repeats. Nice and simple. Send on channel
+func RecieveMsgs(usr *User, quit *chan bool) {
 	for {
-		val := <-usr.channel
-		c := *usr.conn
-		c.Write([]byte("[" + val.sentFrom.name + "] " + val.msg + "\n"))
-		//log.Error(<-usr.channel)
+		select {
+		case val := <-usr.channel:
+			c := *usr.conn
+			c.Write([]byte("[" + val.sentFrom.name + "] " + val.msg + "\n"))
+		case <-(*quit):
+			log.Debug("Quitting goroutine!")
+			return
+		}
 	}
 }
 
 // ReadHandler handles all the incoming connections and reading from the
 // socket. Little more complicated than I'd like currently.
 var ReadHandler = func(c *net.Conn) {
+	quit := make(chan bool)
 	usr := CreateUser("Bryan", c)
-	go RecieveMsgs(&usr)
 	log.Debug(usr.name)
-	//log.Info(Users) //unsafe!
+
+	// recieve messages
+	go RecieveMsgs(usr, &quit)
+
+	// create and join room
 	rm := CreateRoom("test")
-	JoinRoom(&usr, &rm)
+	JoinRoom(usr, rm)
 	log.Debug(rm)
+
+	// main read loop
 	log.Debug("Starting goroutine to handle connection from:", (*c).RemoteAddr())
 	for {
-		//writePrompt(c)
 		count, buff, _ := readInput(c)
 		if count <= 0 {
 			log.Warningf("No data read (%d) closing goroutine.", count)
-			return // get out of here
+			quit <- true
+			RemoveUser(usr.name) // this would work once we dissalow duplicate usernames
+			return               // get out of here
 		}
+
+		// parse input
+		cmd, err := ParseInput(buff, count)
+		if err != nil {
+			log.Critical(err.Error())
+		}
+		log.Info(cmd)
+
 		s := string(buff[:count]) // convert to string regex
 		re := regexp.MustCompile("\n")
 		index := re.FindStringIndex(s) // gives it in [start, end] []int format
 		log.Info("Index position of newline character:", index)
-
 		// send messages here
 		var msg = Message{
 			msg:        s[:index[0]],
 			attachment: []byte{},
-			sentFrom:   &usr,
-			sentTo:     &usr,
-			room:       nil,
-			isToRoom:   false,
+			sentFrom:   usr,
+			sentTo:     nil,
+			room:       rm,
+			isToRoom:   true,
 		}
-		msg.Send()
 		msg.Send()
 		//log.Critical(s[:index[0]])
 	}
+}
+
+// ParseInput takes the input and parses it into a Command structure
+// which tells the caller what the user wants to do. Error is returns based
+// on errors in this process.
+func ParseInput(input []byte, count int) (*Command, error) {
+	s := string(input[:count])                     // convert to string regex
+	re := regexp.MustCompile(`(.*)(\<|\>|\|)(.*)`) // end at newline
+	stripNewline := regexp.MustCompile("\n")
+	index := stripNewline.FindStringIndex(s) // gives it in [start, end] []int format
+
+	cmd := &Command{
+		Cmd:  SEND_DIRECT,
+		Args: []Argument{},
+		Msg:  &Message{},
+	}
+
+	splitInput := re.FindStringSubmatch(s[:index[0]])
+
+	log.Notice(re)
+	for c, v := range splitInput {
+		switch c {
+		case 0: //full match
+			log.Warning(c, strings.TrimSpace(v), " FULL")
+		case 1: //left
+			log.Warning(c, strings.TrimSpace(v), " LEFT")
+		case 2: //operator
+			log.Warning(c, strings.TrimSpace(v), " OPERATOR")
+			if v == ">" {
+				cmd.Cmd = SEND_DIRECT
+				*(cmd.Msg) = Message{
+					msg:    splitInput[c-1],        // the left is the message
+					sentTo: users[splitInput[c+1]], // the right is the user. TODO: lock mutex
+				}
+			}
+		case 3: //right
+			log.Warning(c, strings.TrimSpace(v), " RIGHT")
+		}
+
+	}
+	log.Error(cmd)
+	log.Info("Index position of newline character:", index)
+	return cmd, nil
 }
 
 // JoinRoom adds a user to a room.
@@ -109,47 +169,51 @@ func JoinRoom(usr *User, rm *Room) {
 }
 
 // CreateRoom handles creating a new Room to be inserted into Rooms
-func CreateRoom(roomname string) Room {
+func CreateRoom(roomname string) *Room {
 	r := Room{
 		name:     roomname,
 		users:    []*User{},    //starts empty
 		messages: []*Message{}, //starts empty
 	}
 	roomLock.Lock()
-	Rooms[roomname] = &r
+	if val, ok := rooms[roomname]; ok == true {
+		log.Debug("Duplicate room. ")
+		return val
+	}
+	rooms[roomname] = &r
 	roomLock.Unlock()
-	return r
+	return &r
 }
 
 // RemoveRoom deletes a Room from the Rooms list
 func RemoveRoom(roomname string) {
 	roomLock.Lock()
-	_, ok := Rooms[roomname]
+	_, ok := rooms[roomname]
 	if ok {
-		delete(Rooms, roomname)
+		delete(rooms, roomname)
 	}
 	roomLock.Unlock()
 }
 
 // CreateUser creates a new user with name username and connection pointer c
-func CreateUser(username string, c *net.Conn) User {
+func CreateUser(username string, c *net.Conn) *User {
 	u := User{
 		name:    username,
 		conn:    c,
 		channel: make(chan *Message),
 	}
 	userLock.Lock()
-	Users[username] = &u
+	users[username] = &u
 	userLock.Unlock()
-	return u
+	return &u
 }
 
 // RemoveUser removes a user from the Users list
 func RemoveUser(username string) {
 	userLock.Lock()
-	_, ok := Users[username]
+	_, ok := users[username]
 	if ok {
-		delete(Users, username)
+		delete(users, username)
 	}
 	userLock.Unlock()
 }
