@@ -1,14 +1,15 @@
-package main
+package cryptchat
 
 import (
 	"net"
+	"time"
 )
 
 // Structs / data types
 
 // Message is a type meant to encapsulate a message from a user to a user or room
 type Message struct {
-	Msg        string `json:"msg,omitempty"` // might switch to []byte if it proves easier with encryption
+	Body       string `json:"msg,omitempty"` // might switch to []byte if it proves easier with encryption
 	Attachment []byte `json:"attachment,omitempty"`
 	SentFrom   *User  `json:"sent_from,omitempty"`
 	SentTo     *User  `json:"sent_to,omitempty"`
@@ -65,4 +66,9 @@ type Room struct {
 	Name     string     `json:"name,omitempty"`
 	Users    []*User    `json:"users,omitempty"`
 	Messages []*Message `json:"messages,omitempty"`
+}
+
+func TimeResponse() []byte {
+	t := time.Now()
+	return []byte("[" + t.Format("3:04PM") + "]:")
 }

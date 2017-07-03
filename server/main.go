@@ -1,10 +1,7 @@
 package main
 
-import (
-	"fmt"
-)
+import cc "github.com/bryandmc/cryptchat"
 
 func main() {
-	fmt.Println("Starting....")
-	Start()
+	cc.Start()
 }

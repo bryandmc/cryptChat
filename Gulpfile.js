@@ -51,9 +51,11 @@ gulp.task('server:spawn', function() {
   } else {
     // Linux / MacOS
     var path_folder = __dirname.split('/');
+    console.log(path_folder)
   }
   var length = path_folder.length;
   var app    = path_folder[length - parseInt(1)];
+  console.log(app)
 
   // Run the server
   if (os.platform() == 'win32') {

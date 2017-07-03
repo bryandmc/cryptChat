@@ -1,17 +1,11 @@
-package main
+package cryptchat
 
 import (
 	"encoding/json"
 	"net"
 	"os"
 
-	"regexp"
-
-	"time"
-
 	"sync"
-
-	"strings"
 
 	logging "github.com/op/go-logging"
 )
@@ -54,7 +48,7 @@ func RecieveMsgs(usr *User, quit *chan bool) {
 		select {
 		case val := <-usr.channel:
 			c := *usr.conn
-			c.Write([]byte("[" + val.SentFrom.Name + "] " + val.Msg + "\n"))
+			c.Write([]byte("[" + val.SentFrom.Name + "] " + val.Body + "\n"))
 		case <-(*quit):
 			log.Debug("Quitting goroutine!")
 			return
@@ -89,85 +83,15 @@ var ReadHandler = func(c *net.Conn) {
 			close(quit)
 			return // get out of here
 		}
+		log.Debug(buff[:count])
 
-		// parse input
-		cmd, err := ParseInput(buff, count)
-		if err != nil {
-			log.Critical(err.Error())
-		}
-		log.Info(cmd)
-
-		s := string(buff[:count]) // convert to string regex
-		re := regexp.MustCompile("\n")
-		index := re.FindStringIndex(s) // gives it in [start, end] []int format
-		log.Info("Index position of newline character:", index)
-		// send messages here
-		var msg = Message{
-			Msg:        s[:index[0]],
-			Attachment: []byte{},
-			SentFrom:   usr,
-			SentTo:     nil,
-			Room:       rm,
-			IsToRoom:   true,
-		}
-		marsh, err := json.Marshal(msg)
+		var c = Command{}
+		err := json.Unmarshal(buff[:count], &c)
 		if err != nil {
 			log.Error(err.Error())
 		}
-		log.Critical(marsh)
-		unmarsh := new(Message)
-		err = json.Unmarshal(marsh, &unmarsh)
-		if err != nil {
-			log.Error(err.Error())
-		}
-		log.Critical("User sent from:", unmarsh.SentFrom)
-		log.Critical("Room:", unmarsh.Room)
-		msg.Send()
-		//log.Critical(s[:index[0]])
+		log.Critical("Encrypted Message:", c.Msg.Body)
 	}
-}
-
-// ParseInput takes the input and parses it into a Command structure
-// which tells the caller what the user wants to do. Error is returns based
-// on errors in this process.
-func ParseInput(input []byte, count int) (*Command, error) {
-	s := string(input[:count])                     // convert to string regex
-	re := regexp.MustCompile(`(.*)(\<|\>|\|)(.*)`) // end at newline
-	stripNewline := regexp.MustCompile("\n")
-	index := stripNewline.FindStringIndex(s) // gives it in [start, end] []int format
-
-	cmd := &Command{
-		Cmd:  SEND_DIRECT,
-		Args: []Argument{},
-		Msg:  &Message{},
-	}
-
-	splitInput := re.FindStringSubmatch(s[:index[0]])
-
-	log.Notice(re)
-	for c, v := range splitInput {
-		switch c {
-		case 0: //full match
-			log.Warning(c, strings.TrimSpace(v), " FULL")
-		case 1: //left
-			log.Warning(c, strings.TrimSpace(v), " LEFT")
-		case 2: //operator
-			log.Warning(c, strings.TrimSpace(v), " OPERATOR")
-			if v == ">" {
-				cmd.Cmd = SEND_DIRECT
-				*(cmd.Msg) = Message{
-					Msg:    splitInput[c-1],        // the left is the message
-					SentTo: users[splitInput[c+1]], // the right is the user. TODO: lock mutex
-				}
-			}
-		case 3: //right
-			log.Warning(c, strings.TrimSpace(v), " RIGHT")
-		}
-
-	}
-	log.Error(cmd)
-	log.Info("Index position of newline character:", index)
-	return cmd, nil
 }
 
 // JoinRoom adds a user to a room.
@@ -240,13 +164,8 @@ func Start() {
 	Listen(ReadHandler)
 }
 
-func timeResponse() []byte {
-	t := time.Now()
-	return []byte("[" + t.Format("3:04PM") + "]:")
-}
-
 func writePrompt(c *net.Conn) {
-	(*c).Write(timeResponse())
+	(*c).Write(TimeResponse())
 }
 
 func readInput(c *net.Conn) (int, []byte, error) {

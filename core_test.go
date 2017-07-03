@@ -1,4 +1,4 @@
-package main
+package cryptchat
 
 import (
 	"net"
@@ -62,7 +62,7 @@ func TestMessage_Send(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &Message{
-				Msg:        tt.fields.msg,
+				Body:       tt.fields.msg,
 				Attachment: tt.fields.attachment,
 				SentFrom:   tt.fields.sentFrom,
 				SentTo:     tt.fields.sentTo,
