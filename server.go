@@ -88,9 +88,11 @@ var ReadHandler = func(c *net.Conn) {
 		var c = Command{}
 		err := json.Unmarshal(buff[:count], &c)
 		if err != nil {
-			log.Error(err.Error())
+			log.Error("Unmarshal: ", err.Error())
+
+		} else {
+			log.Critical("Encrypted Message:", c.Msg.Body)
 		}
-		log.Critical("Encrypted Message:", c.Msg.Body)
 	}
 }
 
