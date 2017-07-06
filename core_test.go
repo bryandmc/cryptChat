@@ -24,7 +24,7 @@ func TestMessage_Send(t *testing.T) {
 	go RecieveMsgs(usr, &quit)
 
 	type fields struct {
-		msg        string
+		msg        []byte
 		attachment []byte
 		sentFrom   *User
 		sentTo     *User
@@ -38,7 +38,7 @@ func TestMessage_Send(t *testing.T) {
 		{
 			name: "basic user",
 			fields: fields{
-				msg:        "Hey!!",
+				msg:        []byte("Hey!!"),
 				attachment: *new([]byte),
 				sentFrom:   new(User),
 				sentTo:     usr,
@@ -49,7 +49,7 @@ func TestMessage_Send(t *testing.T) {
 		{
 			name: "basic room",
 			fields: fields{
-				msg:        "Hey!!",
+				msg:        []byte("Hey!!"),
 				attachment: *new([]byte),
 				sentFrom:   usr,
 				sentTo:     nil,
