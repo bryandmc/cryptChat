@@ -7,6 +7,10 @@ import (
 
 	"sync"
 
+	"strings"
+
+	"errors"
+
 	logging "github.com/op/go-logging"
 )
 
@@ -48,7 +52,8 @@ func RecieveMsgs(usr *User, quit *chan bool) {
 		select {
 		case val := <-usr.channel:
 			c := *usr.conn
-			c.Write([]byte("[" + val.SentFrom.Name + "] " + val.Body + "\n"))
+			//log.Notice([]byte(val.Body))
+			c.Write([]byte(val.Body))
 		case <-(*quit):
 			log.Debug("Quitting goroutine!")
 			return
@@ -59,18 +64,10 @@ func RecieveMsgs(usr *User, quit *chan bool) {
 // ReadHandler handles all the incoming connections and reading from the
 // socket. Little more complicated than I'd like currently.
 var ReadHandler = func(c *net.Conn) {
-	quit := make(chan bool)
-	usr := CreateUser("Bryan", c)
-	log.Debug(usr.Name)
-
-	// recieve messages
-	go RecieveMsgs(usr, &quit)
-
-	// create and join room
-	rm := CreateRoom("test")
-	JoinRoom(usr, rm)
-	log.Debug(rm)
-
+	quit := make(chan bool, 1)
+	// local variables related to just this users connection..?
+	cmdChan := make(chan *Command, 20)
+	go HandleCommand(cmdChan, quit, c) // just get rid of it and let this go back to reading input
 	// main read loop
 	log.Debug("Starting goroutine to handle connection from:", (*c).RemoteAddr())
 	for {
@@ -78,22 +75,69 @@ var ReadHandler = func(c *net.Conn) {
 		if count <= 0 {
 			log.Warningf("No data read (%d) closing goroutine.", count)
 			quit <- true
-			RemoveUser(usr.Name) // this would work once we dissalow duplicate usernames
-			close(usr.channel)
 			close(quit)
 			return // get out of here
 		}
-		log.Debug(buff[:count])
-
-		var c = Command{}
-		err := json.Unmarshal(buff[:count], &c)
+		var cmd = Command{}
+		err := json.Unmarshal(buff[:count], &cmd)
 		if err != nil {
 			log.Error("Unmarshal: ", err.Error())
 
 		} else {
-			log.Critical("Encrypted Message:", c.Msg.Body)
+			log.Critical("before send cmdChan")
+			log.Notice(cmd.Msg.Body)
+			cmdChan <- &cmd
 		}
 	}
+}
+
+func HandleCommand(cmdChan chan *Command, quit chan bool, c *net.Conn) {
+	for {
+		log.Critical("handlecommand")
+		cmd := <-cmdChan
+		switch cmd.Cmd {
+		case SEND_USERNAME:
+			log.Debug("send_username")
+			username := cmd.Args["connect_username"]
+			usr := CreateUser(username, c)
+			go RecieveMsgs(usr, &quit)
+			log.Debug("USERS (send_username):", users)
+		case SEND_DIRECT:
+			SendDirect(cmd)
+		case SEND_ROOM:
+			log.Debug("Send_room")
+			//handle
+		case JOIN_ROOM:
+			log.Debug("join_room")
+		case CREATE_ROOM:
+			log.Debug("create_room")
+		case REMOVE_ROOM:
+			log.Debug("remove_room")
+		case QUIT:
+			log.Debug("quit")
+		}
+	}
+}
+func SendDirect(cmd *Command) error {
+	log.Debug("Send_Direct")
+	to := LookupUser(cmd.Args["to_username"])
+	from := LookupUser(cmd.Args["from_username"])
+	cmd.Msg.SentTo = to
+	cmd.Msg.SentFrom = from
+	if to != nil && from != nil {
+		cmd.Msg.Send()
+		return nil
+	}
+	return errors.New("could not determind user to/from properly")
+}
+
+func LookupUser(username string) *User {
+	log.Debug("LookupUser")
+	username = strings.Trim(username, "\n")
+	userLock.Lock()
+	defer userLock.Unlock()
+	log.Debug(users[username])
+	return users[strings.TrimSpace(username)]
 }
 
 // JoinRoom adds a user to a room.
@@ -144,8 +188,8 @@ func CreateUser(username string, c *net.Conn) *User {
 		channel: make(chan *Message),
 	}
 	userLock.Lock()
+	defer userLock.Unlock()
 	users[username] = &u
-	userLock.Unlock()
 	return &u
 }
 
@@ -198,4 +242,7 @@ func setupLogging() {
 	// Set the backends to be used.
 	logging.SetBackend(backend1Leveled, backend2Formatter)
 
+}
+func main() {
+	Start()
 }

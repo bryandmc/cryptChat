@@ -1,28 +1,34 @@
 package main
 
-import cc "github.com/bryandmc/cryptchat"
+import (
+	cc "github.com/bryandmc/cryptchat"
+)
 
 func main() {
 	c, err := cc.Connect("localhost:1234")
 	if err != nil {
 		return
 	}
+
 	done := make(chan bool)
+	readString := make(chan string, 20)
+	cmdOut := make(chan cc.Command, 20)
+	encryptOut := make(chan cc.Command, 20)
+	marshalOut := make(chan []byte, 20)
+	userCmd := cc.SendUserName()
+	cmdOut <- *userCmd //send username
 	// read input from user
-	readString := make(chan string)
+	go cc.ListenResponse(c)
 	go cc.ReadInput(c, readString)
 
 	// pass user input to parsing function
-	cmdOut := make(chan cc.Command)
 	go cc.ParseInput(readString, cmdOut)
 
 	// pass to message encryption function
-	encryptOut := make(chan cc.Command)
 	go cc.EncryptMessage(cmdOut, encryptOut)
 
 	// pass to json Marshaler
-	marshalOut := make(chan []byte)
-	go cc.MarshalMessage(encryptOut, marshalOut)
+	go cc.MarshalMessage(encryptOut, marshalOut) //modified for testing !! first shold be (encryptOut, ??)
 
 	// pass to network Writer
 	go cc.WriteOutput(c, marshalOut)
