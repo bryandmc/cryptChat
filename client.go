@@ -3,6 +3,7 @@ package cryptchat
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"regexp"
@@ -15,7 +16,11 @@ import (
 )
 
 var user User
-var key = []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"[:32])
+var key []byte
+
+type Config struct {
+	CryptoKey string `json:"crypto_key,omitempty"`
+}
 
 func printBanner() {
 	fmt.Println()
@@ -42,6 +47,22 @@ func Connect(host string) (*net.Conn, error) {
 	return &conn, nil
 }
 
+func ReadConfig() {
+	dat, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	conf := new(Config)
+	err = json.Unmarshal(dat, conf)
+	if err != nil {
+		fmt.Println("Marshalling error:", err.Error())
+	} else {
+		key = []byte(conf.CryptoKey[:32])
+	}
+}
+
+// SendUserName is the first command that establishes a username for the user with
+// the server.
 func SendUserName() *Command {
 	// send personal username to server
 	fmt.Print("Enter your username: ")
@@ -62,6 +83,8 @@ func SendUserName() *Command {
 	return userCmd
 }
 
+// ReadInput is meant too be a small goroutine that is spawned, waiting for the moment
+// when user input is typed and enter is pressed. Then it goes and waits again.
 func ReadInput(c *net.Conn, out chan string) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -70,6 +93,8 @@ func ReadInput(c *net.Conn, out chan string) {
 	}
 }
 
+// WriteOutput is a simple function that is meant to be a goroutine that simple waits for data
+// to write to the socket that comes in on a channel.
 func WriteOutput(c *net.Conn, in chan []byte) {
 	for {
 		w := <-in
@@ -92,37 +117,32 @@ func ParseInput(in chan string, out chan Command) {
 			Msg:  &Message{},
 		}
 		splitInput := re.FindStringSubmatch(s[:index[0]])
-		for c, v := range splitInput {
-			switch c { // (0, 1, ..., 3) currently unused. Left here because they seem like they might get used soon
-			case 0: //full match
-			case 1: //left
-			case 2: //operator
-				if v == ">" {
-					*(cmd.Msg) = Message{
-						Body: []byte(strings.TrimSpace(splitInput[c-1])), // the left is the message
-					}
-					cmd.Args = Arguments{
-						"to_username":   strings.TrimSpace(splitInput[c+1]),
-						"from_username": user.Name,
-					}
-				} else if v == "<" {
-					*(cmd.Msg) = Message{
-						Body: []byte(strings.TrimSpace(splitInput[c+1])), // the right is the message
-					}
-					cmd.Args = Arguments{
-						"to_username":   strings.TrimSpace(splitInput[c-1]),
-						"from_username": user.Name,
-					}
-				} else if v == "|" {
-					*(cmd.Msg) = Message{
-						Body: []byte(strings.TrimSpace(splitInput[c-1])), // the left is the message
-					}
-					cmd.Args = Arguments{
-						"to_room":       strings.TrimSpace(splitInput[c+1]),
-						"from_username": user.Name,
-					}
+		if len(splitInput) > 2 {
+			if splitInput[2] == ">" {
+				*(cmd.Msg) = Message{
+					Body: []byte(strings.TrimSpace(splitInput[1])), // the left is the message
 				}
-			case 3: //right
+				cmd.Args = Arguments{
+					"to_username":   strings.TrimSpace(splitInput[3]),
+					"from_username": user.Name,
+				}
+			} else if splitInput[2] == "<" {
+				*(cmd.Msg) = Message{
+					Body: []byte(strings.TrimSpace(splitInput[3])), // the right is the message
+				}
+				cmd.Args = Arguments{
+					"to_username":   strings.TrimSpace(splitInput[1]),
+					"from_username": user.Name,
+				}
+			} else if splitInput[2] == "|" {
+				*(cmd.Msg) = Message{
+					Body:     []byte(strings.TrimSpace(splitInput[1])), // the left is the message
+					IsToRoom: true,
+				}
+				cmd.Args = Arguments{
+					"to_room":       strings.TrimSpace(splitInput[3]),
+					"from_username": user.Name,
+				}
 			}
 		}
 		out <- *cmd
@@ -130,6 +150,8 @@ func ParseInput(in chan string, out chan Command) {
 
 }
 
+// EncryptMessage is used (like most other functions) as a small goroutine that will wait for
+// data to be provided to it, so that it can Encrypt the message and pass it along.
 func EncryptMessage(in chan Command, out chan Command) {
 	for {
 		cmd := <-in
@@ -143,8 +165,11 @@ func EncryptMessage(in chan Command, out chan Command) {
 	}
 }
 
+// ListenResponse is the function that waits for information to be
+// sent over the socket and then displays it to the user.
 func ListenResponse(c *net.Conn) {
-	buff := make([]byte, 1024*4)
+	buff := make([]byte, 1024)
+	//buff := new(bytes.Buffer)
 	for {
 		count, err := (*c).Read(buff)
 		if err != nil {
@@ -157,11 +182,12 @@ func ListenResponse(c *net.Conn) {
 		if err != nil {
 			fmt.Println(err.Error())
 		} else {
-			fmt.Println(string(decryptedText))
+			fmt.Println(TimeResponse(), string(decryptedText))
 		}
 	}
 }
 
+// MarshalMessage is used to convert a Command struct into a json representation
 func MarshalMessage(in chan Command, out chan []byte) {
 	for {
 		cmd := <-in
@@ -170,6 +196,20 @@ func MarshalMessage(in chan Command, out chan []byte) {
 			log.Critical(err.Error())
 		} else {
 			out <- marshMessage
+		}
+	}
+}
+
+// UnMarshalMessage is for converting messages from json --> Command structs
+func UnMarshalMessage(in chan []byte, out chan Command) {
+	for {
+		cmd := Command{}
+		inputData := <-in
+		err := json.Unmarshal(inputData, &cmd)
+		if err != nil {
+			log.Error("Unmarshal: ", err.Error())
+		} else {
+			out <- cmd
 		}
 	}
 }

@@ -69,7 +69,7 @@ type Room struct {
 	Messages []*Message `json:"messages,omitempty"`
 }
 
-func TimeResponse() []byte {
+func TimeResponse() string {
 	t := time.Now()
-	return []byte("[" + t.Format("3:04PM") + "]:")
+	return string("[" + t.Format("3:04PM") + "]:")
 }

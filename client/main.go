@@ -5,6 +5,7 @@ import (
 )
 
 func main() {
+	cc.ReadConfig()
 	c, err := cc.Connect("localhost:1234")
 	if err != nil {
 		return

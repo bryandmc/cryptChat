@@ -52,7 +52,6 @@ func RecieveMsgs(usr *User, quit *chan bool) {
 		select {
 		case val := <-usr.channel:
 			c := *usr.conn
-			//log.Notice([]byte(val.Body))
 			c.Write([]byte(val.Body))
 		case <-(*quit):
 			log.Debug("Quitting goroutine!")
@@ -100,13 +99,21 @@ func HandleCommand(cmdChan chan *Command, quit chan bool, c *net.Conn) {
 			log.Debug("send_username")
 			username := cmd.Args["connect_username"]
 			usr := CreateUser(username, c)
+			// only after a username is setup can that user recieve messages
 			go RecieveMsgs(usr, &quit)
 			log.Debug("USERS (send_username):", users)
+
 		case SEND_DIRECT:
-			SendDirect(cmd)
+			err := SendDirect(cmd)
+			if err != nil {
+				log.Critical(err.Error())
+			}
 		case SEND_ROOM:
 			log.Debug("Send_room")
-			//handle
+			err := SendRoom(cmd) // actually same logi
+			if err != nil {
+				log.Critical(err.Error())
+			}
 		case JOIN_ROOM:
 			log.Debug("join_room")
 		case CREATE_ROOM:
@@ -118,6 +125,20 @@ func HandleCommand(cmdChan chan *Command, quit chan bool, c *net.Conn) {
 		}
 	}
 }
+
+func SendRoom(cmd *Command) error {
+	log.Debug("Send_Direct")
+	to := LookupRoom(cmd.Args["to_room"])
+	from := LookupUser(cmd.Args["from_username"])
+	cmd.Msg.Room = to
+	cmd.Msg.SentFrom = from
+	if to != nil && from != nil {
+		cmd.Msg.Send()
+		return nil
+	}
+	return errors.New("could not determind user to/from properly")
+}
+
 func SendDirect(cmd *Command) error {
 	log.Debug("Send_Direct")
 	to := LookupUser(cmd.Args["to_username"])
@@ -129,6 +150,15 @@ func SendDirect(cmd *Command) error {
 		return nil
 	}
 	return errors.New("could not determind user to/from properly")
+}
+
+func LookupRoom(roomname string) *Room {
+	log.Debug("LookupUser")
+	roomname = strings.Trim(roomname, "\n")
+	roomLock.Lock()
+	defer roomLock.Unlock()
+	log.Debug(rooms[roomname])
+	return rooms[strings.TrimSpace(roomname)]
 }
 
 func LookupUser(username string) *User {
@@ -210,12 +240,12 @@ func Start() {
 	Listen(ReadHandler)
 }
 
-func writePrompt(c *net.Conn) {
-	(*c).Write(TimeResponse())
-}
+// func writePrompt(c *net.Conn) {
+// 	(*c).Write(TimeResponse())
+// }
 
 func readInput(c *net.Conn) (int, []byte, error) {
-	buff := make([]byte, 1024*4) // This will have to be fiddled with
+	buff := make([]byte, 1024) // This will have to be fiddled with
 	count, err := (*c).Read(buff)
 	if err != nil {
 		// handle, log, etc...
